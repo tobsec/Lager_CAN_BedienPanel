@@ -1,0 +1,49 @@
+/*
+ * PanelLEDdefs.h
+ *
+ * Created: 8/27/2014 6:40:59 PM
+ *  Author: Tobias
+ */ 
+
+
+#ifndef PANELLEDDEFS_H_
+#define PANELLEDDEFS_H_
+
+
+#define LED_P3_CH1_UP		0b00000001
+#define LED_P3_CH1_DOWN		0b00000010
+#define LED_P3_CH1_ONOFF	0b00000100
+#define LED_P3_CH2_UP		0b00001000
+#define LED_P3_CH2_DOWN		0b00010000
+#define LED_P3_CH2_ONOFF	0b00100000
+#define LED_P3_CH3_UP		0b01000000
+#define LED_P3_CH3_DOWN		0b10000000
+#define LED_P3_CH3_ONOFF	0b00000001
+#define LED_P3_CH4_UP		0b00000010
+#define LED_P3_CH4_DOWN		0b00000100
+#define LED_P3_CH4_ONOFF	0b00001000
+
+#define LED_P3_CH5_UP		0b00010000
+#define LED_P3_CH5_DOWN		0b00100000
+#define LED_P3_CH5_ONOFF	0b00001000
+
+#define LED_P3_CH1_UP_ADR		0x05 // 0x || 0=P3 / 1=P1+2 || 4=Adresse (set_adr(4))
+#define LED_P3_CH1_DOWN_ADR		0x05
+#define LED_P3_CH1_ONOFF_ADR	0x05
+#define LED_P3_CH2_UP_ADR		0x05
+#define LED_P3_CH2_DOWN_ADR		0x05
+#define LED_P3_CH2_ONOFF_ADR	0x05
+#define LED_P3_CH3_UP_ADR		0x05
+#define LED_P3_CH3_DOWN_ADR		0x05
+#define LED_P3_CH3_ONOFF_ADR	0x06
+#define LED_P3_CH4_UP_ADR		0x06
+#define LED_P3_CH4_DOWN_ADR		0x06
+#define LED_P3_CH4_ONOFF_ADR	0x06
+
+#define LED_P3_CH5_UP_ADR		0x15
+#define LED_P3_CH5_DOWN_ADR		0x15
+#define LED_P3_CH5_ONOFF_ADR	0x15
+
+
+
+#endif /* PANELLEDDEFS_H_ */
