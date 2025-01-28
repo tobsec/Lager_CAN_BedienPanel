@@ -53,14 +53,14 @@ uint8_t bufTx_rx = 0;
 uint8_t bufTx_tx = 0;
 	
 static uint8_t ticks=0;
-static uint16_t time=0; // Wird alle 10ms hochgezählt 
-static CANMessage receivedMsg[25]; // Puffer für eingegangene CAN Messages
-static CANMessage txMsg[25]; // Puffer für ausgehende Messages
+static uint16_t time=0; // Wird alle 10ms hochgezï¿½hlt 
+static CANMessage receivedMsg[25]; // Puffer fï¿½r eingegangene CAN Messages
+static CANMessage txMsg[25]; // Puffer fï¿½r ausgehende Messages
 static uint8_t outputValues[5]={0,0,0,0,0};
 static uint8_t programmLightSzenzeMode=0;
 static uint8_t saveActualValues=0;
 
-uint8_t eeByteArray1[10][5] EEMEM = {	{255,255,255,255,255}, // 5 Kanäle auf 10 Speicherplätzen
+uint8_t eeByteArray1[10][5] EEMEM = {	{255,255,255,255,255}, // 5 Kanï¿½le auf 10 Speicherplï¿½tzen
 										{0,0,0,0,0},
 										{128,128,128,128,128},
 										{0,0,0,0,0},
@@ -72,7 +72,7 @@ uint8_t eeByteArray1[10][5] EEMEM = {	{255,255,255,255,255}, // 5 Kanäle auf 10 
 										{0,0,0,0,0}
 }; 
 	
-//const uint8_t thisID = 21; // eindeutige ID von diesem Gerät (0+31 sind reserviert)
+//const uint8_t thisID = 21; // eindeutige ID von diesem Gerï¿½t (0+31 sind reserviert)
 #define thisID (uint8_t) 21
 
 CANMessage defaultMsgToLightActor11 = {
@@ -80,7 +80,7 @@ CANMessage defaultMsgToLightActor11 = {
 	11,			//destID
 	0},			//IDbit
 	0,			//RTR
-	1,			//Length muss bei opt. Wert geändert werden
+	1,			//Length muss bei opt. Wert geï¿½ndert werden
 	0,			//ArrivalTime
 	0			//Data
 };
@@ -411,7 +411,7 @@ int main(void)
 	for (uint8_t i=0; i<25; i++) {
 		receivedMsg[i].id.destID=0;
 	}
-	// Ports für Taster als Eingang und PullUps setzen
+	// Ports fï¿½r Taster als Eingang und PullUps setzen
 	DDRB &= ~(1<<PORTB7);
 	DDRC &= ~0b00111111;
 	DDRD &= ~(1<<PORTD4);
@@ -419,7 +419,7 @@ int main(void)
 	PORTC |= 0b00111111;
 	PORTD |= (1<<PORTD4);
 	
-	// Uart-Rx Pin als Ausgang für Panel-Enable
+	// Uart-Rx Pin als Ausgang fï¿½r Panel-Enable
 	DDRD |= (1<<PORTD0);
 	PORTD |= (1<<PORTD0);
 	
@@ -434,7 +434,7 @@ int main(void)
 	
 	sei();
 	
-	// Nach Start: Request für alle Kanäle senden
+	// Nach Start: Request fï¿½r alle Kanï¿½le senden
 	defaultMsgToLightActor11.data[0]=0; // Action 0, outID 0
 	can_send_message(&defaultMsgToLightActor11);
 	_delay_ms(10);
@@ -489,21 +489,23 @@ int main(void)
 					uint8_t action = ((msg.data[0]&0b11100000)>>5);
 					uint8_t outID = (msg.data[0]&0b00011111);
 					
-					if (action==7 && msg.length>1) { // ResponseValue
-						if (outID>=0 && outID <=4) {
-							setLedBar(outID,msg.data[1]);						
-							setPanelUpDownOnOffLeds(outID,msg.data[1]);	
-							if (outputValues[outID]!=msg.data[1]) { // Neuer empfangener Wert deaktiviert SzenenTastenLed
-								clearAllSceneLeds();
-								outputValues[outID]=msg.data[1]; // Holds last State zum speichern
-							}								
-							//if (saveActualValues>0 && saveActualValues<=10) {
-							//	eeprom_write_byte(&eeByteArray1[saveActualValues-1][outID],msg.data[1]);
-							//	if (outID==4) saveActualValues=0;
-							//}			
-						}							
-					}	
-					
+					if (msg.id.srcID == 11)
+					{
+						if (action==7 && msg.length>1) { // ResponseValue
+							if (outID>=0 && outID <=4) {
+								setLedBar(outID,msg.data[1]);						
+								setPanelUpDownOnOffLeds(outID,msg.data[1]);	
+								if (outputValues[outID]!=msg.data[1]) { // Neuer empfangener Wert deaktiviert SzenenTastenLed
+									clearAllSceneLeds();
+									outputValues[outID]=msg.data[1]; // Holds last State zum speichern
+								}								
+								//if (saveActualValues>0 && saveActualValues<=10) {
+								//	eeprom_write_byte(&eeByteArray1[saveActualValues-1][outID],msg.data[1]);
+								//	if (outID==4) saveActualValues=0;
+								//}			
+							}							
+						}	
+					}
 				}					
 		}
 		
@@ -543,7 +545,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 			hjh++;
 			if (hjh==1) {	
 				
-				wdt_reset(); // Alle 100ms Watchdog Reseten um sicherzustellen dass die LEDs nicht überhitzen
+				wdt_reset(); // Alle 100ms Watchdog Reseten um sicherzustellen dass die LEDs nicht ï¿½berhitzen
 				
 				if (~switches[2]&0b00000010) { //P3, Ch0, BtnDown
 					defaultMsgToLightActor11.data[0]=(0b01100000|0);
@@ -552,9 +554,9 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 					defaultMsgToLightActor11.data[0]=(0b01000000|0);
 					addMessageToTxBuffer(&defaultMsgToLightActor11);
 				} else if (~switches[2]&0b00000100) { //P3, Ch0, BtnOnOff
-					if (~switchesHold[2]&0b00000100) { // zuvor schon gedrückt?
+					if (~switchesHold[2]&0b00000100) { // zuvor schon gedrï¿½ckt?
 							// warten bis zum loslassen
-						} else { // einmal beim drücken ausführen
+						} else { // einmal beim drï¿½cken ausfï¿½hren
 							defaultMsgToLightActor11.data[0]=(0b10000000|0);
 							addMessageToTxBuffer(&defaultMsgToLightActor11);
 							switchesHold[2] &= ~0b00000100;
@@ -569,9 +571,9 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 					defaultMsgToLightActor11.data[0]=(0b01000000|1);
 					addMessageToTxBuffer(&defaultMsgToLightActor11);		
 				} else if (~switches[2]&0b00100000) { //P3, Ch1, BtnOnOff
-					if (~switchesHold[2]&0b00100000) { // zuvor schon gedrückt?
+					if (~switchesHold[2]&0b00100000) { // zuvor schon gedrï¿½ckt?
 						// warten bis zum loslassen
-					} else { // einmal beim drücken ausführen
+					} else { // einmal beim drï¿½cken ausfï¿½hren
 						defaultMsgToLightActor11.data[0]=(0b10000000|1);
 						addMessageToTxBuffer(&defaultMsgToLightActor11);
 						switchesHold[2] &= ~0b00100000;
@@ -586,9 +588,9 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 					defaultMsgToLightActor11.data[0]=(0b01000000|2);
 					addMessageToTxBuffer(&defaultMsgToLightActor11);
 				} else if (~switches[3]&0b00000001) { //P3, Ch3, BtnOnOff
-					if (~switchesHold[3]&0b00000001) { // zuvor schon gedrückt?
+					if (~switchesHold[3]&0b00000001) { // zuvor schon gedrï¿½ckt?
 						// warten bis zum loslassen
-					} else { // einmal beim drücken ausführen
+					} else { // einmal beim drï¿½cken ausfï¿½hren
 						defaultMsgToLightActor11.data[0]=(0b10000000|2);
 						addMessageToTxBuffer(&defaultMsgToLightActor11);
 						switchesHold[3] &= ~0b00000001;
@@ -603,9 +605,9 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 					defaultMsgToLightActor11.data[0]=(0b01000000|3);
 					addMessageToTxBuffer(&defaultMsgToLightActor11);
 				} else if (~switches[3]&0b00001000) { //P3, Ch3, BtnOnOff
-					if (~switchesHold[3]&0b00001000) { // zuvor schon gedrückt?
+					if (~switchesHold[3]&0b00001000) { // zuvor schon gedrï¿½ckt?
 						// warten bis zum loslassen
-					} else { // einmal beim drücken ausführen
+					} else { // einmal beim drï¿½cken ausfï¿½hren
 						defaultMsgToLightActor11.data[0]=(0b10000000|3);
 						addMessageToTxBuffer(&defaultMsgToLightActor11);
 						switchesHold[3] &= ~0b00001000;
@@ -620,9 +622,9 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 					defaultMsgToLightActor11.data[0]=(0b01000000|4);
 					addMessageToTxBuffer(&defaultMsgToLightActor11);
 				} else if (~switches[5]&LED_P3_CH5_ONOFF) { //P3, Ch3, BtnOnOff
-					if (~switchesHold[5]&LED_P3_CH5_ONOFF) { // zuvor schon gedrückt?
+					if (~switchesHold[5]&LED_P3_CH5_ONOFF) { // zuvor schon gedrï¿½ckt?
 					// warten bis zum loslassen
-					} else { // einmal beim drücken ausführen
+					} else { // einmal beim drï¿½cken ausfï¿½hren
 						defaultMsgToLightActor11.data[0]=(0b10000000|4);
 						addMessageToTxBuffer(&defaultMsgToLightActor11);
 						switchesHold[5] &= ~LED_P3_CH5_ONOFF;
@@ -631,9 +633,9 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 			}
 			if (hjh==6) {
 				if (~switches[5]&0b00000100) { //LightSzene ProgrammBtn
-					if (~switchesHold[5]&0b00000100) { // zuvor schon gedrückt?
+					if (~switchesHold[5]&0b00000100) { // zuvor schon gedrï¿½ckt?
 						// warten bis zum loslassen
-					} else { // einmal beim drücken ausführen
+					} else { // einmal beim drï¿½cken ausfï¿½hren
 						if (programmLightSzenzeMode==0) {
 							clearAllSceneLeds();
 							programmLightSzenzeMode=1;
@@ -656,7 +658,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {							
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[0][i]);
@@ -667,7 +669,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}						
 						clearAllSceneLeds();
-						setPanelLed(0b00000001,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b00000001,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b00000001;	
 					}
 				} else switchesHold[4] |= 0b00000001;
@@ -680,7 +682,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[1][i]);
@@ -691,7 +693,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b00000010,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b00000010,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b00000010;
 					}
 				} else switchesHold[4] |= 0b00000010;
@@ -706,7 +708,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[2][i]);
@@ -717,7 +719,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b00000100,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b00000100,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b00000100;
 					}
 				} else switchesHold[4] |= 0b00000100;
@@ -729,7 +731,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[3][i]);
@@ -740,7 +742,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b00001000,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b00001000,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b00001000;
 					}
 				} else switchesHold[4] |= 0b00001000;
@@ -752,7 +754,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[4][i]);
@@ -763,7 +765,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b00010000,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b00010000,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b00010000;
 					}
 				} else switchesHold[4] |= 0b00010000;
@@ -777,7 +779,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[5][i]);
@@ -788,7 +790,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b00100000,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b00100000,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b00100000;
 					}
 				} else switchesHold[4] |= 0b00100000;
@@ -800,7 +802,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[6][i]);
@@ -811,7 +813,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b01000000,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b01000000,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b01000000;
 					}
 				} else switchesHold[4] |= 0b01000000;
@@ -823,7 +825,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[7][i]);
@@ -834,7 +836,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b10000000,0x16); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b10000000,0x16); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[4] &= ~0b10000000;
 					}
 				} else switchesHold[4] |= 0b10000000;
@@ -848,7 +850,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[8][i]);
@@ -859,7 +861,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b01000000,0x15); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b01000000,0x15); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[5] &= ~0b00000001;
 					}
 				} else switchesHold[5] |= 0b00000001;
@@ -871,7 +873,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							programmLightSzenzeMode=0;
 							clearPanelLed(0b00000100,0x15);
 						} else {
-							//Lichtszene aus EEPROM holen und ausführen
+							//Lichtszene aus EEPROM holen und ausfï¿½hren
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[9][i]);
@@ -882,7 +884,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							}
 						}
 						clearAllSceneLeds();
-						setPanelLed(0b10000000,0x15); // Wann wird LED wieder gelöscht?
+						setPanelLed(0b10000000,0x15); // Wann wird LED wieder gelï¿½scht?
 						switchesHold[5] &= ~0b00000010;
 					}
 				} else switchesHold[5] |= 0b00000010;
