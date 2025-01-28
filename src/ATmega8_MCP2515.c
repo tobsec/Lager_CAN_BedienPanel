@@ -20,6 +20,11 @@
 #include "MCP2515.h"
 #include "Panel.h"
 #include "PanelLEDdefs.h"
+#include "LagerLight_protocol.h"
+
+#define MCU_ID_EEPROM_ADDR 256
+#define MCU_ID eeprom_read_word((uint16_t*) MCU_ID_EEPROM_ADDR)
+
 
 typedef struct  
 {
@@ -403,7 +408,16 @@ int main(void)
 {
 	wdt_enable(WDTO_500MS);
 	initPanel();
+	
 	//uart_init();
+
+	uint16_t mcuId = MCU_ID;
+	if (mcuId == 0xFFFF)
+	{
+		// EEPROM empty, need to program MCU ID
+		eeprom_write_word(MCU_ID_EEPROM_ADDR, BUS_ID);
+	}
+
 	mcp2515_init();
 	initTimer();
 	initInterrupt();
@@ -482,31 +496,50 @@ int main(void)
 		
 		CANMessage msg = getMessageFromBuffer();
 		
-		if (msg.id.destID != 0) {
-				//printMessage(&msg);
-				
-				if (msg.length>0) {
-					uint8_t action = ((msg.data[0]&0b11100000)>>5);
-					uint8_t outID = (msg.data[0]&0b00011111);
-					
-					if (msg.id.srcID == 11)
+		if (msg.id.destID == BUS_ID || msg.id.destID == BROADCAST_ID)
+		{
+			if (msg.length > 0u)
+			{
+				actionType_e action = GET_ACTION(msg.data[0u]);
+				outID = GET_OUTID(msg.data[0u]);
+
+				switch (action)
+				{
+					case ACTION_RESPONSE:
 					{
-						if (action==7 && msg.length>1) { // ResponseValue
-							if (outID>=0 && outID <=4) {
-								setLedBar(outID,msg.data[1]);						
-								setPanelUpDownOnOffLeds(outID,msg.data[1]);	
-								if (outputValues[outID]!=msg.data[1]) { // Neuer empfangener Wert deaktiviert SzenenTastenLed
-									clearAllSceneLeds();
-									outputValues[outID]=msg.data[1]; // Holds last State zum speichern
-								}								
-								//if (saveActualValues>0 && saveActualValues<=10) {
-								//	eeprom_write_byte(&eeByteArray1[saveActualValues-1][outID],msg.data[1]);
-								//	if (outID==4) saveActualValues=0;
-								//}			
-							}							
-						}	
+						if (msg.length > 1u) // ResponseValue
+						{ 
+							if (msg.id.srcID == 11)
+							{
+								if (outID>=0 && outID <=4)
+								{
+									setLedBar(outID,msg.data[1]);						
+									setPanelUpDownOnOffLeds(outID,msg.data[1]);	
+									if (outputValues[outID]!=msg.data[1])
+									{ // Neuer empfangener Wert deaktiviert SzenenTastenLed
+										clearAllSceneLeds();
+										outputValues[outID]=msg.data[1]; // Holds last State zum speichern
+									}									
+								}
+							}
+						}
+						break;
 					}
-				}					
+			
+					case ACTION_RESET:
+					{
+						cli();                 // disable interrupts
+						wdt_enable(WDTO_15MS); // watchdog timeout 15ms
+						while(1);              // wait for watchdog to reset mcu
+						break;
+					}
+					
+					default:
+					{
+						break;
+					}
+				}
+			}
 		}
 		
 		msg = getMessageFromTxBuffer();
