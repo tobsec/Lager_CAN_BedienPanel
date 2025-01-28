@@ -5,8 +5,6 @@
  *  Author: Tobias
  */ 
 
-#define F_CPU 8000000UL
-
 #include <avr/io.h>
 #include <stdio.h>
 #include <util/delay.h>
@@ -22,11 +20,15 @@
 #include "PanelLEDdefs.h"
 #include "LagerLight_protocol.h"
 
+#include "config.h"
+
+
 #define MCU_ID_EEPROM_ADDR 256
 #define MCU_ID eeprom_read_word((uint16_t*) MCU_ID_EEPROM_ADDR)
 
 
-typedef struct  
+
+typedef struct
 {
 	uint8_t srcID;
 	uint8_t destID;
@@ -39,7 +41,7 @@ typedef struct
 	uint8_t   rtr;
 	uint8_t   length;
 	uint16_t arrivalTime;
-	uint8_t   data[8];
+	uint8_t   data[8u];
 } CANMessage;
 
 static uint8_t hjg=0;
@@ -51,17 +53,18 @@ uint8_t switchesHold[8];
 uint8_t value = 128;
 uint8_t value2 = 0;
 
-uint8_t buf_rx = 0;
-uint8_t buf_tx = 0;
+volatile uint8_t buf_rx = 0u;
+volatile uint8_t buf_tx = 0u;
 
-uint8_t bufTx_rx = 0;
-uint8_t bufTx_tx = 0;
-	
-static uint8_t ticks=0;
+volatile uint8_t bufTx_rx = 0;
+volatile uint8_t bufTx_tx = 0;
+
 static uint16_t time=0; // Wird alle 10ms hochgez�hlt 
-static CANMessage receivedMsg[25]; // Puffer f�r eingegangene CAN Messages
-static CANMessage txMsg[25]; // Puffer f�r ausgehende Messages
-static uint8_t outputValues[5]={0,0,0,0,0};
+
+static CANMessage receivedMsg[RXBUF_LEN]; // Puffer f�r eingegangene CAN Messages
+static CANMessage txMsg[TXBUF_LEN]; // Puffer f�r ausgehende Messages
+
+static uint8_t outputValue[OUT_CHANNELS] = OUT_VALUE_START;
 static uint8_t programmLightSzenzeMode=0;
 static uint8_t saveActualValues=0;
 
@@ -76,18 +79,15 @@ uint8_t eeByteArray1[10][5] EEMEM = {	{255,255,255,255,255}, // 5 Kan�le auf 1
 										{0,0,0,0,0},
 										{0,0,0,0,0}
 }; 
-	
-//const uint8_t thisID = 21; // eindeutige ID von diesem Ger�t (0+31 sind reserviert)
-#define thisID (uint8_t) 21
 
-CANMessage defaultMsgToLightActor11 = {
-	{thisID,	//srcID
-	11,			//destID
-	0},			//IDbit
-	0,			//RTR
-	1,			//Length muss bei opt. Wert ge�ndert werden
-	0,			//ArrivalTime
-	0			//Data
+
+CANMessage defaultMsgToLightActor11 =
+{ 
+		.id = { .srcID = THIS_ID, .destID = LIGHTACTOR_11_ID, .bit = 0u },
+		.rtr = 0u,
+		.length = 1u,
+		.arrivalTime = 0u,
+		.data = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
 };
 
 void initTimer() {
@@ -96,76 +96,30 @@ void initTimer() {
 	TIMSK  |= (1<<TOIE0);  // Overflow Interrupt erlauben
 }
 
-void initInterrupt() {
+void initInterrupt()
+{
 	DDRD &= ~(1<<PORTD3);		// Set PD3 as input (Using for interrupt INT1)
 	PORTD |= (1<<PORTD3);		// Enable PD3 pull-up resistor
 	GICR = (1<<INT1);					// Enable INT1
 	MCUCR = (0<<ISC11) | (0<<ISC10);	// Low-Level generates Interrupt Request ( /* Trigger INT1 on falling edge */ )
 }
 
-/*
-void addMessage(CANMessage * p_msg) {
-	if (p_msg->id<25) {
-		copyMsg(p_msg, &receivedMsg[p_msg->id]);
-		//printMessage(&receivedMsg[p_msg->id]);
-		receivedMsg[p_msg->id].arrivalTime = time;
-	}
-	//uint8_t addMessage(CANMessage * p_msg)
-	//{
-		//uint8_t i=0;
-		//while (receivedMsg[i].id != 0) {
-			//i++;
-			//if (i==50) break;
-		//}
-		//if (i<50) {
-			////receivedMsg[i] = (CANMessage *) malloc(sizeof(CANMessage));
-			//copyMsg(p_msg, &receivedMsg[i]);
-			//receivedMsg[i].arrivalTime = time;
-			////copyMsg(p_msg, receivedMsg[i]);
-			//return 0;
-		//}
-		//return 1;
-	//}
-}*/
-/*
-CANMessage * searchMessage(void) {
-	uint8_t i=0;
-	while (receivedMsg[i].id == 0) {
-		i++;
-		if (i==25) break;
-	}
-	if (i<25) {
-		return &receivedMsg[i];
-		//free(receivedMsg[i]);
-	} else return 0;
-}*/
-
-/*
-CANMessage * searchMessageID(uint16_t id) {
-	uint8_t i=0;
-	while (receivedMsg[i].id != id) {
-		i++;
-		if (i==25) break;
-	}
-	if (i<25) {
-		return &receivedMsg[i];
-	} else return 0;
-}*/
-
-void copyMsg(CANMessage * in, CANMessage * out) {
+void copyMsg(CANMessage * in, CANMessage * out)
+{
 	out->id.bit = in->id.bit;
 	out->id.destID = in->id.destID;
 	out->id.srcID = in->id.srcID;
 	out->length = in->length;
 	out->rtr = in->rtr;
 	out->arrivalTime = in->arrivalTime;
-	for (uint8_t i=0; i<in->length; i++)
+	for (uint8_t i = 0u; i<in->length; i++)
 	{
 		out->data[i]=in->data[i];
 	}
 }
 /*
-void printMessage(CANMessage * msg) {
+void printMessage(CANMessage * msg)
+{
 	char temp[10];
 	uart_puts("srcID: ");
 	itoa(msg->id.srcID, temp, 10);
@@ -211,54 +165,58 @@ uint8_t can_get_message(CANMessage *p_message)
 		// Nachricht in Puffer 1
 		
 		PORT_CS &= ~(1<<P_CS);    // CS Low
-		spi_putc(SPI_READ_RX | 0x04);
-		//uart_puts("Puffer1hatMsg\r\n");
+		spi_putc(SPI_READ_RX | 0x04u);
+		// uart_puts("Puffer1hatMsg\r\n");
 	}
 	else {
 		/* Fehler: Keine neue Nachricht vorhanden */
 		PORT_CS |= (1<<P_CS);
-		return 0xff;
+		return 0xFFu;
 	}
 	
 	// Standard ID auslesen
-	uint16_t idTemp = 0;
-	idTemp =  (uint16_t) spi_putc(0xff) << 3;
-	idTemp |= (uint16_t) spi_putc(0xff) >> 5;
+	uint16_t idTemp = 0u;
+	idTemp =  (uint16_t) (spi_putc(0xFFu) << 3u);
+	idTemp |= (uint16_t) (spi_putc(0xFFu) >> 5u);
 	
-	p_message->id.srcID = (uint8_t) ((idTemp&0b0000011111000000)>>6);
-	p_message->id.destID = (uint8_t) ((idTemp&0b0000000000111110)>>1);
-	p_message->id.bit = (uint8_t) ((idTemp&0x0001));
+	p_message->id.srcID = (uint8_t) ((idTemp &  0b0000011111000000) >> 6u);
+	p_message->id.destID = (uint8_t) ((idTemp & 0b0000000000111110) >> 1u);
+	p_message->id.bit = (uint8_t) ((idTemp & 0x0001));
 	
-	spi_putc(0xff); //EXTENDED IDENTIFIER HIGH
-	spi_putc(0xff); //EXTENDED IDENTIFIER LOW
+	spi_putc(0xFFu); //EXTENDED IDENTIFIER HIGH
+	spi_putc(0xFFu); //EXTENDED IDENTIFIER LOW
 	
 	// Laenge auslesen
-	uint8_t length = spi_putc(0xff) & 0x0f;
+	uint8_t length = spi_putc(0xFFu) & 0x0Fu;
 	p_message->length = length;
 	
+	if (length > 8u)
+		length = 8u;
+	
 	// Daten auslesen
-	for (uint8_t i=0;i<length;i++) {
-		p_message->data[i] = spi_putc(0xff);
+	for (uint8_t i = 0u; i < length; i++)
+	{
+		p_message->data[i] = spi_putc(0xFFu);
 	}
 	
 	PORT_CS |= (1<<P_CS);
 	
 	if (bit_is_set(status,3)) {
-		p_message->rtr = 1;
+		p_message->rtr = 1u;
 	} else {
-		p_message->rtr = 0;
+		p_message->rtr = 0u;
 	}
 	
-	p_message->arrivalTime=0;
+	p_message->arrivalTime = 0u;
 	
 	// Interrupt Flag loeschen
 	if (bit_is_set(status,6)) {
-		mcp2515_bit_modify(CANINTF, (1<<RX0IF), 0);
+		mcp2515_bit_modify(CANINTF, (1<<RX0IF), 0u);
 	} else {
-		mcp2515_bit_modify(CANINTF, (1<<RX1IF), 0);
+		mcp2515_bit_modify(CANINTF, (1<<RX1IF), 0u);
 	}
 	
-	return (status & 0x07); // Return Filter Match (S.67)
+	return (status & 0x07u); // Return Filter Match (S.67)
 }
 
 uint8_t can_send_message(CANMessage *p_message)
@@ -299,23 +257,18 @@ uint8_t can_send_message(CANMessage *p_message)
     spi_putc(SPI_WRITE_TX | address);
    
     // Standard ID einstellen
-   // spi_putc((uint8_t) (p_message->id>>3));
-   // spi_putc((uint8_t) (p_message->id<<5));
-   
-   spi_putc((uint8_t) ((p_message->id.srcID<<3)|(p_message->id.destID>>2)));
-   
    #ifdef debug
    char temp[16];
    uart_puts("ID_HIGH: ");
-   itoa((uint8_t) ((p_message->id.srcID<<3)|(p_message->id.destID>>2)), temp, 2);
+	itoa((uint8_t)((p_message->id.srcID << 3) | (p_message->id.destID >> 2)), temp, 2);
    uart_puts(temp);
    
    uart_puts("ID_LOW: ");
-   itoa((uint8_t) ((p_message->id.destID<<6)|(p_message->id.bit<<5)), temp, 2);
+	itoa((uint8_t)((p_message->id.destID << 6) | (p_message->id.bit << 5)), temp, 2);
    uart_puts(temp);
    #endif
-   
-   spi_putc((uint8_t) ((p_message->id.destID<<6)|(p_message->id.bit<<5)));
+	spi_putc((uint8_t)((p_message->id.srcID << 3) | (p_message->id.destID >> 2)));
+	spi_putc((uint8_t)((p_message->id.destID << 6) | (p_message->id.bit << 5)));
    
     // Extended ID
     spi_putc(0x00);
@@ -372,19 +325,35 @@ uint8_t readSwitch() {
 	return temp;
 }
 
-void addMessageToBuffer(CANMessage * msg) {
+void addMessageToBuffer(CANMessage * msg)
+{
 	copyMsg(msg, &receivedMsg[buf_tx]);
-	if (buf_tx>=24) buf_tx=0;
-	else buf_tx++;
+	if (buf_tx >= (RXBUF_LEN - 1u))
+		buf_tx = 0u;
+	else
+		buf_tx++;
 }
 
-CANMessage getMessageFromBuffer() {
-	CANMessage msg = {0,0,0,0,0};
-	if (buf_tx != buf_rx) {
+CANMessage getMessageFromBuffer()
+{
+	CANMessage msg = { 
+		.id = { .srcID = 0u, .destID = 0u, .bit = 0u },
+		.rtr = 0u,
+		.length = 0u,
+		.arrivalTime = 0u,
+		.data = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
+		};
+
+	cli(); // Critical section, accessing buffers
+	if (buf_tx != buf_rx)
+	{
 		copyMsg(&receivedMsg[buf_rx], &msg);
-		if (buf_rx>=24) buf_rx=0;
-		else buf_rx++;
+		if (buf_rx >= (RXBUF_LEN - 1))
+			buf_rx = 0u;
+		else
+			buf_rx++;
 	}
+	sei(); // End of critical section
 	return msg;
 }
 
@@ -394,8 +363,16 @@ void addMessageToTxBuffer(CANMessage * msg) {
 	else bufTx_tx++;
 }
 
-CANMessage getMessageFromTxBuffer() {
-	CANMessage msg = {0,0,0,0,0};
+CANMessage getMessageFromTxBuffer()
+{
+	CANMessage msg = { 
+		.id = { .srcID = 0u, .destID = 0u, .bit = 0u },
+		.rtr = 0u,
+		.length = 0u,
+		.arrivalTime = 0u,
+		.data = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
+		};
+
 	if (bufTx_tx != bufTx_rx) {
 		copyMsg(&txMsg[bufTx_rx], &msg);
 		if (bufTx_rx>=24) bufTx_rx=0;
@@ -415,7 +392,7 @@ int main(void)
 	if (mcuId == 0xFFFF)
 	{
 		// EEPROM empty, need to program MCU ID
-		eeprom_write_word(MCU_ID_EEPROM_ADDR, BUS_ID);
+		eeprom_write_word((uint16_t*) MCU_ID_EEPROM_ADDR, THIS_ID);
 	}
 
 	mcp2515_init();
@@ -467,36 +444,20 @@ int main(void)
 	
 	wdt_enable(WDTO_250MS); // Watchdog auf 250ms einschalten
 	
-    while(1){
-		/*
-		if (saveActualValues>32) { // noch kein Req. verschickt?
-			defaultMsgToLightActor11.data[0]=0; // Action 0, outID 0
-			can_send_message(&defaultMsgToLightActor11);
-			_delay_ms(10);
-			defaultMsgToLightActor11.data[0]=1; // Action 0, outID 1
-			can_send_message(&defaultMsgToLightActor11);
-			_delay_ms(10);
-			defaultMsgToLightActor11.data[0]=2; // Action 0, outID 2
-			can_send_message(&defaultMsgToLightActor11);
-			_delay_ms(10);
-			defaultMsgToLightActor11.data[0]=3; // Action 0, outID 3
-			can_send_message(&defaultMsgToLightActor11);
-			_delay_ms(10);
-			defaultMsgToLightActor11.data[0]=4; // Action 0, outID 3
-			can_send_message(&defaultMsgToLightActor11);
-			_delay_ms(10);
-			saveActualValues-=32;
-		}*/
+    while(1)
+    {
+
 		if (saveActualValues>0 && saveActualValues<11) {
 			for (uint8_t i=0; i<=4; i++) {
-				eeprom_write_byte(&eeByteArray1[saveActualValues-1][i],outputValues[i]);
+				eeprom_write_byte(&eeByteArray1[saveActualValues-1][i],outputValue[i]);
 			}
 			saveActualValues=0;
 		}
 		
 		CANMessage msg = getMessageFromBuffer();
-		
-		if (msg.id.destID == BUS_ID || msg.id.destID == BROADCAST_ID)
+		uint8_t outID = 0u;
+
+		if (msg.id.destID == THIS_ID || msg.id.destID == BROADCAST_ID)
 		{
 			if (msg.length > 0u)
 			{
@@ -515,10 +476,10 @@ int main(void)
 								{
 									setLedBar(outID,msg.data[1]);						
 									setPanelUpDownOnOffLeds(outID,msg.data[1]);	
-									if (outputValues[outID]!=msg.data[1])
+									if (outputValue[outID]!=msg.data[1])
 									{ // Neuer empfangener Wert deaktiviert SzenenTastenLed
 										clearAllSceneLeds();
-										outputValues[outID]=msg.data[1]; // Holds last State zum speichern
+										outputValue[outID]=msg.data[1]; // Holds last State zum speichern
 									}									
 								}
 							}
@@ -543,14 +504,18 @@ int main(void)
 		}
 		
 		msg = getMessageFromTxBuffer();
-		if (msg.id.destID != 0)	{
+		if (msg.id.destID != 0)
+		{
 			if (can_send_message(&msg)==0) addMessageToTxBuffer(&msg); // Alle Puffer voll-> Nachricht wieder im FIFO einreihen
 		}
 		
     }
 }
 
-ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
+ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
+{	
+	static uint8_t channel = 0u;
+	
 	//if (ticks>=1) {// Nach 10ms ----> Nach 0,5ms
 	if (channel>15) {
 		if (channel==16) data_out(0);
@@ -695,7 +660,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[0][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -719,7 +684,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[1][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -745,7 +710,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[2][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -768,7 +733,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[3][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -791,7 +756,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[4][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -816,7 +781,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[5][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -839,7 +804,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[6][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -862,7 +827,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[7][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -887,7 +852,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[8][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -910,7 +875,7 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 							for (uint8_t i=0; i<=4; i++) {
 								defaultMsgToLightActor11.data[0]=(0b00100000|i);
 								defaultMsgToLightActor11.data[1]=eeprom_read_byte(&eeByteArray1[9][i]);
-								outputValues[i]=defaultMsgToLightActor11.data[1];
+								outputValue[i]=defaultMsgToLightActor11.data[1];
 								defaultMsgToLightActor11.length=2;
 								addMessageToTxBuffer(&defaultMsgToLightActor11);
 								defaultMsgToLightActor11.length=1;
@@ -938,9 +903,11 @@ ISR (TIMER0_OVF_vect) { // jede 1ms 0,25ms ALLE 0,5ms/500us
 	TCNT0 = 194;
 }
 
-ISR(INT1_vect) {
+ISR(INT1_vect)
+{
 	CANMessage msg;
-	while (can_get_message(&msg)!=0xFF) {
+	while (can_get_message(&msg) != 0xFFu)
+	{
 		addMessageToBuffer(&msg);
 	}
 }

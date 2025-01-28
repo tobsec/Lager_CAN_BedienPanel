@@ -9,14 +9,11 @@
 #ifndef PANEL_H_
 #define PANEL_H_
 
-static uint8_t channel;
 volatile uint8_t leds[8];
 volatile uint8_t leds2[8];
 
 // Panel 1000 CPU
 
-
-#define F_CPU 8000000UL
 
 #include <avr/io.h>
 #include <stdio.h>

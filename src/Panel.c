@@ -3,9 +3,7 @@
  *
  * Created: 7/23/2014 7:55:55 PM
  *  Author: Tobias
- */ 
-
-#define F_CPU 8000000UL
+ */
 
 #include <avr/io.h>
 #include <stdio.h>
@@ -37,7 +35,7 @@ void setLedBar(uint8_t number, uint8_t intense) {
 		if (intense>200) temp |= 0b00000001; // 90%
 		if (intense>225) temp |= 0b00000010; // 100%
 	
-		leds[4] = ((leds[4]&(~(0b00000011<<(number*2))) | (temp<<(number*2))));
+		leds[4] = (((leds[4] & (~(0b00000011<<(number*2)))) | ((temp<<(number*2)))));
 	} else if (number==4) { // linkes 1 Kanal
 		for (uint8_t i=0; i<=7; i++) {
 			if ((intense>(i*25))) temp |= (0b00000001<<i);
@@ -48,7 +46,7 @@ void setLedBar(uint8_t number, uint8_t intense) {
 		if (intense>200) temp |= 0b00000001; // 90%
 		if (intense>225) temp |= 0b00000010; // 100%
 		
-		leds2[5] = leds2[5]&(~(0b00000011)) | (temp);
+		leds2[5] = ((leds2[5] & (~(0b00000011))) | (temp));
 	}		
 }
 

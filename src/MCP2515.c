@@ -5,16 +5,18 @@
  *  Author: Tobias
  */ 
 
-#define F_CPU 8000000UL
-
 #include <avr/io.h>
 #include <util/delay.h>
 #include "MCP2515.h"
 #include "mcp2515_defs.h"
+#include "UART.h"
+
+// #define CLOCK_8MHZ
+#define CLOCK_16MHZ
 
 void spi_init(void)
 {
-	// Aktivieren der Pins für das SPI Interface
+	// Aktivieren der Pins fï¿½r das SPI Interface
 	DDR_SPI  |= (1<<P_SCK)|(1<<P_MOSI);
 	PORT_SPI &= ~((1<<P_SCK)|(1<<P_MOSI)|(1<<P_MISO));
 	
@@ -128,9 +130,16 @@ void mcp2515_init(void)
      *             = 1 / 8 * TQ = 125 kHz
      */
    
+#if defined CLOCK_16MHZ
     // BRP = 7
     mcp2515_write_register( CNF1, (1<<BRP0)|(1<<BRP1)|(1<<BRP2) );
-   
+#elif defined CLOCK_8MHZ
+    // BRP = 3
+    mcp2515_write_register( CNF1, (1<<BRP0)|(1<<BRP1) );
+#else
+#error Specify clock settings!
+#endif
+
     // Prop Seg und Phase Seg1 einstellen
     mcp2515_write_register( CNF2, (1<<BTLMODE)|(1<<PHSEG11) );
    
@@ -145,12 +154,16 @@ void mcp2515_init(void)
    
    _delay_ms(100); // Sicherheitshalber warten bis CLKOUT stabil
    
-   #ifdef debug
+#if defined CLOCK_16MHZ
    if (mcp2515_read_register(CNF1) == ((1<<BRP2)|(1<<BRP1)|(1<<BRP0))) {
 	   uart_puts("MCP2515 initialize\r\n");
    } else uart_puts("ERROR!\r\n");
-   #endif
-   
+#elif defined CLOCK_8MHZ
+   if (mcp2515_read_register(CNF1) == ((1<<BRP1)|(1<<BRP0))) {
+	   uart_puts("MCP2515 initialize\r\n");
+   } else uart_puts("ERROR!\r\n");
+#endif
+
     /*
      *  Einstellen der Filter
      *
@@ -169,17 +182,12 @@ void mcp2515_init(void)
    
     // Alle Bits der Empfangsmaske loeschen,
     // damit werden alle Nachrichten empfangen
-    //mcp2515_write_register( RXM0SIDH, 0x01 ); // Filtern
-  //  mcp2515_write_register( RXM0SIDL, 0xE0 ); // der unteren 4 Bits
-	mcp2515_write_register( RXM0SIDH, 0 );
-	mcp2515_write_register( RXM0SIDL, 0 );
+    mcp2515_write_register( RXM0SIDH, 0 );
+    mcp2515_write_register( RXM0SIDL, 0 );
     mcp2515_write_register( RXM0EID8, 0 );
     mcp2515_write_register( RXM0EID0, 0 );
     mcp2515_write_register( RXF0SIDH, 0 );
     mcp2515_write_register( RXF0SIDL, 0 );
-   
-   
-   
    
     mcp2515_write_register( RXM1SIDH, 0xFF );
     mcp2515_write_register( RXM1SIDL, 0xE0 );
@@ -202,7 +210,6 @@ void mcp2515_init(void)
    
     // Device zurueck in den normalen Modus versetzten
     mcp2515_bit_modify( CANCTRL, 0xE0, 0);
-	
 }
 
 uint8_t mcp2515_read_rx_status(void)
