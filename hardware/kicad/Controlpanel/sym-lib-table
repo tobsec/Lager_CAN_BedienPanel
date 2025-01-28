@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "eHz_If-rescue")(type "Legacy")(uri "${KIPRJMOD}/eHz_If-rescue.lib")(options "")(descr ""))
+)
