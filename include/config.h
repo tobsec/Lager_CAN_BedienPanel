@@ -11,6 +11,13 @@
 #define BROADCAST_ID      31u
 #define LIGHTACTOR_11_ID  11u
 
+// Uncomment to enable interrupt-based CAN reception
+#define CAN_USE_INTERRUPTS  // Comment this out to use polling mode
+
+// #define MCP_CLOCK_8MHZ
+#define MCP_CLOCK_16MHZ
+
+#define MCP_CLOCKOUT_ENABLE
 
 #define OUT_VALUE_START  \
 {                        \

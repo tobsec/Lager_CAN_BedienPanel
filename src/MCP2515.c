@@ -11,12 +11,12 @@
 #include "mcp2515_defs.h"
 #include "UART.h"
 
-// #define CLOCK_8MHZ
-#define CLOCK_16MHZ
+#include "config.h"
+
 
 void spi_init(void)
 {
-	// Aktivieren der Pins f�r das SPI Interface
+	// Aktivieren der Pins für das SPI Interface
 	DDR_SPI  |= (1<<P_SCK)|(1<<P_MOSI);
 	PORT_SPI &= ~((1<<P_SCK)|(1<<P_MOSI)|(1<<P_MISO));
 	
@@ -148,12 +148,14 @@ void mcp2515_init(void)
    
     // Aktivieren der Rx Buffer Interrupts
     mcp2515_write_register( CANINTE, (1<<RX1IE)|(1<<RX0IE) );
-   
+
+#if defined MCP_CLOCKOUT_ENABLE
    // CLKOUT aktivieren, Prescaler System Clock/2
     mcp2515_bit_modify(CANCTRL, (1<<CLKEN)|(1<<CLKPRE1)|(1<<CLKPRE0), (1<<CLKEN)|(1<<CLKPRE0)); 
    
    _delay_ms(100); // Sicherheitshalber warten bis CLKOUT stabil
-   
+#endif
+
 #if defined CLOCK_16MHZ
    if (mcp2515_read_register(CNF1) == ((1<<BRP2)|(1<<BRP1)|(1<<BRP0))) {
 	   uart_puts("MCP2515 initialize\r\n");

@@ -20,7 +20,7 @@ typedef struct
 void can_addMessageToTxBuffer(CANMessage *msg);
 void can_sendBufferedMessage(CANMessage *p_message);
 CANMessage can_getMessageFromBuffer();
-void can_txLoop();
+void can_loop();
 void can_init();
 
 #endif

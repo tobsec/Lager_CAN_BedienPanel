@@ -18,6 +18,7 @@
 #include "PanelLEDdefs.h"
 #include "LagerLight_protocol.h"
 #include "CAN.h"
+#include "avr_hwAb.h"
 
 #include "config.h"
 
@@ -60,22 +61,6 @@ CANMessage defaultMsgToLightActor11 =
 		.data = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
 };
 
-void initTimer()
-{
-	TCCR0 = (1 << CS01) | (1 << CS00); // Takteiler 64 vorher 8
-	TCNT0 = 194;					   // Preload 131 => T=1ms --> 6x1ms => T=0,06s => f=71Hz vorher 6
-	TIMSK |= (1 << TOIE0);			   // Overflow Interrupt erlauben
-}
-
-void initInterrupt()
-{
-	DDRD &= ~(1 << PORTD3);				 // Set PD3 as input (Using for interrupt INT1)
-	PORTD |= (1 << PORTD3);				 // Enable PD3 pull-up resistor
-	GICR = (1 << INT1);					 // Enable INT1
-	MCUCR = (0 << ISC11) | (0 << ISC10); // Low-Level generates Interrupt Request ( /* Trigger INT1 on falling edge */ )
-}
-
-
 
 uint8_t readSwitch()
 {
@@ -85,7 +70,6 @@ uint8_t readSwitch()
 
 	return temp;
 }
-
 
 
 int main(void)
@@ -104,7 +88,6 @@ int main(void)
 
 	can_init();
 	initTimer();
-	initInterrupt();
 	
 	// Ports f�r Taster als Eingang und PullUps setzen
 	DDRB &= ~(1<<PORTB7);
