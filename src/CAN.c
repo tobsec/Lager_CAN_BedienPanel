@@ -8,6 +8,7 @@
 #include "mcp2515_defs.h"
 #include "UART.h"
 #include "MCP2515.h"
+#include "avr_hwAb.h"
 
 #include "config.h"
 
@@ -337,9 +338,22 @@ void can_sendBufferedMessage(CANMessage *p_message)
     }
 }
 
-void can_txLoop()
+void can_loop()
 {
-    CANMessage msg = getMessageFromTxBuffer();
+	CANMessage msg;
+
+#ifndef CAN_USE_INTERRUPTS
+	// Polling Mode: Check if MCP2515 INT pin (PD3) is LOW
+	if ((PIND & (1 << PIND3)) == 0u)
+	{
+		if (can_get_message(&msg) != 0xFFu)
+		{
+			addMessageToBuffer(&msg);
+		}
+	}
+#endif
+
+    msg = getMessageFromTxBuffer();
 	if (msg.id.destID != 0)
 	{
         can_sendBufferedMessage(&msg); // Alle Puffer voll-> Nachricht wieder im FIFO einreihen
@@ -350,10 +364,18 @@ void can_init()
 {
     mcp2515_init();
 
+#ifdef CAN_USE_INTERRUPTS
+    initInterrupt(); // Enable external interrupt for CAN reception
+#else
+    DDRD &= ~(1 << PORTD3);  // Set PD3 as input
+    PORTD |= (1 << PORTD3);  // Enable pull-up
+#endif
+
     memset(receivedMsg, 0, sizeof(receivedMsg));
     memset(txMsg, 0, sizeof(txMsg));
 }
 
+#ifdef CAN_USE_INTERRUPTS
 ISR(INT1_vect)
 {
 	CANMessage msg;
@@ -362,5 +384,4 @@ ISR(INT1_vect)
 		addMessageToBuffer(&msg);
 	}
 }
-
-
+#endif
