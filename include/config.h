@@ -1,6 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "Arduino.h"
+
 #define OUT_CHANNELS      5u
 
 #define RXBUF_LEN         32u // needs to be a power of two!
@@ -17,7 +19,13 @@
 // #define MCP_CLOCK_8MHZ
 #define MCP_CLOCK_16MHZ
 
-#define MCP_CLOCKOUT_ENABLE
+// Clock Out will not work with ATmega328P since it switches to an internal fail-safe clock
+// Fail-Safe Clock
+//   ATmega328P - Falls back to internal RC if external clock is missing
+//   ATmega8 - Will not run at all without a valid external clock
+// -> Need to use internal 8 MHz oscillator as fallback
+// #define MCP_CLOCKOUT_ENABLE
+
 
 #define OUT_VALUE_START  \
 {                        \

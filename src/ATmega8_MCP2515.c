@@ -71,6 +71,17 @@ uint8_t readSwitch()
 	return temp;
 }
 
+void initD1()
+{
+	DDRD |= (1<<PORTD1);  // Init PD1 as output for debugging
+}
+
+void toggleD1()
+{
+	PORTD ^= (1 << PD1);  // Toggle PD1 for debugging
+}
+
+
 
 int main(void)
 {
@@ -126,7 +137,7 @@ int main(void)
 	can_sendBufferedMessage(&defaultMsgToLightActor11);
 	
 	wdt_enable(WDTO_250MS); // Watchdog auf 250ms einschalten
-	
+
     while(1)
     {
 
@@ -149,40 +160,55 @@ int main(void)
 				actionType_e action = GET_ACTION(msg.data[0u]);
 				outID = GET_OUTID(msg.data[0u]);
 
-				switch (action)
+				if (outID >= 0u && outID <= (OUT_CHANNELS - 1u))
 				{
-					case ACTION_RESPONSE:
+					switch (action)
 					{
-						if (msg.length > 1u) // ResponseValue
-						{ 
-							if (msg.id.srcID == 11)
-							{
-								if (outID>=0 && outID <=4)
+						case ACTION_RESPONSE:
+						{
+							if (msg.length > 1u) // ResponseValue
+							{ 
+								if (msg.id.srcID == 11)
 								{
-									setLedBar(outID,msg.data[1]);						
-									setPanelUpDownOnOffLeds(outID,msg.data[1]);	
-									if (outputValue[outID]!=msg.data[1])
-									{ // Neuer empfangener Wert deaktiviert SzenenTastenLed
-										clearAllSceneLeds();
-										outputValue[outID]=msg.data[1]; // Holds last State zum speichern
-									}									
+									if (outID>=0 && outID <=OUT_CHANNELS)
+									{
+										setLedBar(outID,msg.data[1]);						
+										setPanelUpDownOnOffLeds(outID,msg.data[1]);	
+										if (outputValue[outID]!=msg.data[1])
+										{ // Neuer empfangener Wert deaktiviert SzenenTastenLed
+											clearAllSceneLeds();
+											outputValue[outID]=msg.data[1]; // Holds last State zum speichern
+										}									
+									}
 								}
 							}
+							break;
 						}
-						break;
-					}
-			
-					case ACTION_RESET:
-					{
-						cli();                 // disable interrupts
-						wdt_enable(WDTO_15MS); // watchdog timeout 15ms
-						while(1);              // wait for watchdog to reset mcu
-						break;
-					}
-					
-					default:
-					{
-						break;
+						
+						case ACTION_REQUEST_VALUE:
+						{
+							msg.id.destID = msg.id.srcID; // Return to sender
+							msg.id.srcID = THIS_ID;
+							SET_ACTION(msg.data[0u], ACTION_RESPONSE); // Set all action bits (111) for response, don't touch outputID
+
+							msg.data[1u] = outputValue[outID];
+							msg.length = 2u;
+							can_sendBufferedMessage(&msg);
+							break;
+						}
+
+						case ACTION_RESET:
+						{
+							cli();                 // disable interrupts
+							wdt_enable(WDTO_15MS); // watchdog timeout 15ms
+							while(1);              // wait for watchdog to reset mcu
+							break;
+						}
+						
+						default:
+						{
+							break;
+						}
 					}
 				}
 			}
@@ -197,6 +223,8 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 	static uint8_t channel = 0u;
 	static uint8_t cnt_10ms = 0u;
 	static uint8_t cnt_10x10ms = 0u;
+
+	// toggleD1();
 	
 	//if (ticks>=1) {// Nach 10ms ----> Nach 0,5ms
 	if (channel > 15)

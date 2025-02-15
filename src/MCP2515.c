@@ -130,10 +130,10 @@ void mcp2515_init(void)
      *             = 1 / 8 * TQ = 125 kHz
      */
    
-#if defined CLOCK_16MHZ
+#if defined MCP_CLOCK_16MHZ
     // BRP = 7
     mcp2515_write_register( CNF1, (1<<BRP0)|(1<<BRP1)|(1<<BRP2) );
-#elif defined CLOCK_8MHZ
+#elif defined MCP_CLOCK_8MHZ
     // BRP = 3
     mcp2515_write_register( CNF1, (1<<BRP0)|(1<<BRP1) );
 #else
@@ -155,12 +155,12 @@ void mcp2515_init(void)
    
    _delay_ms(100); // Sicherheitshalber warten bis CLKOUT stabil
 #endif
-
-#if defined CLOCK_16MHZ
+   		
+#if defined MCP_CLOCK_16MHZ
    if (mcp2515_read_register(CNF1) == ((1<<BRP2)|(1<<BRP1)|(1<<BRP0))) {
 	   uart_puts("MCP2515 initialize\r\n");
    } else uart_puts("ERROR!\r\n");
-#elif defined CLOCK_8MHZ
+#elif defined MCP_CLOCK_8MHZ
    if (mcp2515_read_register(CNF1) == ((1<<BRP1)|(1<<BRP0))) {
 	   uart_puts("MCP2515 initialize\r\n");
    } else uart_puts("ERROR!\r\n");

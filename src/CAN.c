@@ -10,6 +10,7 @@
 #include "MCP2515.h"
 #include "avr_hwAb.h"
 
+#include "LagerLight_protocol.h"
 #include "config.h"
 
 volatile uint8_t buf_rx = 0u;
@@ -99,9 +100,9 @@ uint8_t can_get_message(CANMessage *p_message)
 	idTemp = (uint16_t)(spi_putc(0xFFu) << 3u);
 	idTemp |= (uint16_t)(spi_putc(0xFFu) >> 5u);
 
-	p_message->id.srcID = (uint8_t)((idTemp & 0b0000011111000000) >> 6u);
-	p_message->id.destID = (uint8_t)((idTemp & 0b0000000000111110) >> 1u);
-	p_message->id.bit = (uint8_t)((idTemp & 0x0001));
+	p_message->id.srcID = GET_SRC_ID(idTemp);
+	p_message->id.destID = GET_DEST_ID(idTemp);
+	p_message->id.bit = GET_BIT(idTemp);
 
 	spi_putc(0xFFu); // EXTENDED IDENTIFIER HIGH
 	spi_putc(0xFFu); // EXTENDED IDENTIFIER LOW
@@ -197,8 +198,8 @@ uint8_t can_send_message(CANMessage *p_message)
 	itoa((uint8_t)((p_message->id.destID << 6) | (p_message->id.bit << 5)), temp, 2);
 	uart_puts(temp);
 #endif
-	spi_putc((uint8_t)((p_message->id.srcID << 3) | (p_message->id.destID >> 2)));
-	spi_putc((uint8_t)((p_message->id.destID << 6) | (p_message->id.bit << 5)));
+	spi_putc(ENCODE_CANID_HIGHBYTE(p_message->id.srcID, p_message->id.destID));
+	spi_putc(ENCODE_CANID_LOWBYTE(p_message->id.destID, p_message->id.bit));
 
 	// Extended ID
 	spi_putc(0x00);
