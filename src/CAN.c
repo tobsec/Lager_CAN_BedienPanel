@@ -19,7 +19,22 @@ volatile uint8_t buf_tx = 0u;
 volatile uint8_t bufTx_rx = 0u;
 volatile uint8_t bufTx_tx = 0u;
 
+// Bus-off / TX-stall recovery. We previously re-queued every failed TX
+// forever — when the bus actually went bus-off, the MCP2515 stops ACKing
+// and every send returns "all buffers busy". The retry loop then pinned
+// the firmware (panel felt frozen). Now we count consecutive failures
+// and, after CAN_TX_FAIL_THRESHOLD strikes, force a controller re-init
+// so we don't sit idle waiting for the MCP2515's internal 128*11
+// recessive-bit recovery to fire.
+#ifndef CAN_TX_FAIL_THRESHOLD
+#define CAN_TX_FAIL_THRESHOLD 50u
+#endif
+static uint8_t consecutiveTxFails = 0u;
 
+// EFLG.TXB0 (bit 5) is the "Transmit Error — Bus Off" flag. We poll it
+// cheaply from can_loop() at ~1/256 invocations so we catch a hard
+// bus-off even when the application has no traffic to push.
+static uint8_t busOffPollDiv = 0u;
 
 static CANMessage receivedMsg[RXBUF_LEN]; // Puffer f�r eingegangene CAN Messages
 static CANMessage txMsg[TXBUF_LEN]; // Puffer f�r ausgehende Messages
@@ -255,15 +270,17 @@ uint8_t can_send_message(CANMessage *p_message)
 
 void addMessageToBuffer(CANMessage * msg)
 {
+	// Drop-newest on overflow: if advancing the write pointer would
+	// catch the read pointer the buffer is full and we'd silently
+	// clobber an unread message. Better to lose the newest frame than
+	// to corrupt the queue and confuse the consumer.
+	uint8_t next = (buf_tx >= (RXBUF_LEN - 1u)) ? 0u : (uint8_t)(buf_tx + 1u);
+	if (next == buf_rx)
+	{
+		return;
+	}
 	copyMsg(msg, &receivedMsg[buf_tx]);
-	if (buf_tx >= (RXBUF_LEN - 1u))
-	{
-		buf_tx = 0u;
-	}
-	else
-	{
-		buf_tx++;
-	}
+	buf_tx = next;
 }
 
 CANMessage can_getMessageFromBuffer()
@@ -295,20 +312,22 @@ CANMessage can_getMessageFromBuffer()
 
 void can_addMessageToTxBuffer(CANMessage *msg)
 {
+	// Same drop-newest discipline as the RX buffer. Previously this
+	// used a hard-coded wrap at 24 (the TXBUF_LEN was 32 but the bound
+	// was wrong) and never checked for full — overruns silently
+	// overwrote messages the consumer hadn't seen yet.
+	uint8_t next = (bufTx_tx >= (TXBUF_LEN - 1u)) ? 0u : (uint8_t)(bufTx_tx + 1u);
+	if (next == bufTx_rx)
+	{
+		return;
+	}
 	copyMsg(msg, &txMsg[bufTx_tx]);
-	if (bufTx_tx >= 24u)
-	{
-		bufTx_tx = 0u;
-	}
-	else
-	{
-		bufTx_tx++;
-	}
+	bufTx_tx = next;
 }
 
 CANMessage getMessageFromTxBuffer()
 {
-	CANMessage msg = { 
+	CANMessage msg = {
 		.id = { .srcID = 0u, .destID = 0u, .bit = 0u },
 		.rtr = 0u,
 		.length = 0u,
@@ -319,7 +338,7 @@ CANMessage getMessageFromTxBuffer()
 	if (bufTx_tx != bufTx_rx)
 	{
 		copyMsg(&txMsg[bufTx_rx], &msg);
-		if (bufTx_rx >= 24u)
+		if (bufTx_rx >= (TXBUF_LEN - 1u))
 		{
 			bufTx_rx=0u;
 		}
@@ -335,13 +354,46 @@ void can_sendBufferedMessage(CANMessage *p_message)
 {
     if (can_send_message(p_message) == 0u)
     {
+        // All three MCP2515 TX buffers report busy. Normally transient
+        // (arbitration backoff). When the bus is healthy this clears
+        // within microseconds; consecutiveTxFails goes back to 0 next
+        // call. When the bus is bus-off the MCP2515 never finishes any
+        // pending TX, so every call hits this branch.
+        consecutiveTxFails++;
+        if (consecutiveTxFails >= CAN_TX_FAIL_THRESHOLD)
+        {
+            uart_puts("CAN TX stall - reinit\r\n");
+            can_init();
+            // can_init wipes buffers and zeros consecutiveTxFails.
+            // Don't re-queue this frame — let the app drive new traffic.
+            return;
+        }
         can_addMessageToTxBuffer(p_message);
+    }
+    else
+    {
+        consecutiveTxFails = 0u;
     }
 }
 
 void can_loop()
 {
 	CANMessage msg;
+
+	// Cheap bus-off poll. EFLG.TXB0 (bit 5) latches when the controller
+	// has crossed the 256-error bus-off threshold. Hitting it means the
+	// MCP2515 won't TX anything until either the silicon's own recovery
+	// fires (128 occurrences of 11 recessive bits) or we re-init it.
+	busOffPollDiv++;
+	if (busOffPollDiv == 0u)
+	{
+		uint8_t eflg = mcp2515_read_register(EFLG);
+		if (eflg & (1u << TXB0))
+		{
+			uart_puts("CAN bus-off - reinit\r\n");
+			can_init();
+		}
+	}
 
 #ifndef CAN_USE_INTERRUPTS
 	// Polling Mode: Check if MCP2515 INT pin (PD3) is LOW
@@ -372,8 +424,20 @@ void can_init()
     PORTD |= (1 << PORTD3);  // Enable pull-up
 #endif
 
+    // Reset SW state too — if we were called from a recovery path the
+    // old ring-buffer pointers reference stale slots that are about to
+    // be zeroed out, and consecutiveTxFails is what triggered us.
+    uint8_t sreg = SREG;
+    cli();
+    buf_rx = 0u;
+    buf_tx = 0u;
+    bufTx_rx = 0u;
+    bufTx_tx = 0u;
+    consecutiveTxFails = 0u;
+    busOffPollDiv = 0u;
     memset(receivedMsg, 0, sizeof(receivedMsg));
     memset(txMsg, 0, sizeof(txMsg));
+    SREG = sreg;
 }
 
 #ifdef CAN_USE_INTERRUPTS
