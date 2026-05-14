@@ -35,11 +35,31 @@ uint8_t value = 128u;
 uint8_t value2 = 0u;
 
 
-static uint16_t time = 0u; // Wird alle 10ms hochgez�hlt 
+static uint16_t time = 0u; // Wird alle 10ms hochgez�hlt
 
 static uint8_t outputValue[OUT_CHANNELS] = OUT_VALUE_START;
 static uint8_t programmLightSzenzeMode = 0u;
 static uint8_t saveActualValues = 0u;
+
+// Scene-recall state machine. The old code blasted all 5 channel SET frames
+// into the TX FIFO in a tight for-loop inside the timer ISR — fine for the
+// queue, but the gateway-side RX queue could drop them when the gateway's
+// main loop was busy (e.g. doing an MQTT TLS publish). Now we just record
+// which scene to recall + which channel we're up to, and the main loop
+// drains one frame at a time with a gap.
+#define SCENE_RECALL_GAP_TICKS  2u  // ~16 ms at the ~8 ms ISR tick
+static volatile uint8_t pendingSceneIdx     = 0xFFu;   // 0..9 = scene to recall, 0xFF = idle
+static volatile uint8_t pendingSceneChannel = 0u;
+static uint16_t         lastSceneTick       = 0u;
+
+// Called from the ISR when a scene button is pressed. Just records the
+// recall request — the actual frames are emitted from the main loop.
+static void requestSceneRecall(uint8_t sceneIdx)
+{
+	pendingSceneIdx     = sceneIdx;
+	pendingSceneChannel = 0u;
+	lastSceneTick       = 0u; // emit first frame on the next main-loop pass
+}
 
 uint8_t eeByteArray1[10][5] EEMEM = {{255, 255, 255, 255, 255}, // 5 Kan�le auf 10 Speicherpl�tzen
 									 {0, 0, 0, 0, 0},
@@ -124,17 +144,15 @@ int main(void)
 	
 	sei();
 	
-	// Nach Start: Request f�r alle Kan�le senden
-	defaultMsgToLightActor11.data[0u] = 0u; // Action 0, outID 0
-	can_sendBufferedMessage(&defaultMsgToLightActor11);
-	defaultMsgToLightActor11.data[0u] = 1u; // Action 0, outID 1
-	can_sendBufferedMessage(&defaultMsgToLightActor11);
-	defaultMsgToLightActor11.data[0u] = 2u; // Action 0, outID 2
-	can_sendBufferedMessage(&defaultMsgToLightActor11);
-	defaultMsgToLightActor11.data[0u] = 3u; // Action 0, outID 3
-	can_sendBufferedMessage(&defaultMsgToLightActor11);
-	defaultMsgToLightActor11.data[0u] = 4u; // Action 0, outID 4
-	can_sendBufferedMessage(&defaultMsgToLightActor11);
+	// Nach Start: Request fuer alle Kanaele senden. 20 ms zwischen den
+	// Frames damit die 3 MCP2515-TX-Buffer Zeit zum Leeren haben und
+	// die gateway-RX nicht ueberlaeuft.
+	for (uint8_t i = 0u; i < 5u; i++)
+	{
+		defaultMsgToLightActor11.data[0u] = i; // Action 0 (REQUEST_VALUE), outID i
+		can_sendBufferedMessage(&defaultMsgToLightActor11);
+		_delay_ms(20);
+	}
 	
 	wdt_enable(WDTO_250MS); // Watchdog auf 250ms einschalten
 
@@ -148,6 +166,27 @@ int main(void)
 				eeprom_write_byte(&eeByteArray1[saveActualValues-1u][i],outputValue[i]);
 			}
 			saveActualValues = 0u;
+		}
+
+		// Drain pending scene recall: one SET_VALUE frame per ~16 ms.
+		if (pendingSceneIdx < 10u && pendingSceneChannel < 5u)
+		{
+			if ((uint16_t)(time - lastSceneTick) >= SCENE_RECALL_GAP_TICKS)
+			{
+				uint8_t ch = pendingSceneChannel;
+				defaultMsgToLightActor11.data[0] = (0b00100000 | ch);
+				defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[pendingSceneIdx][ch]);
+				outputValue[ch] = defaultMsgToLightActor11.data[1];
+				defaultMsgToLightActor11.length = 2;
+				can_addMessageToTxBuffer(&defaultMsgToLightActor11);
+				defaultMsgToLightActor11.length = 1;
+				lastSceneTick = time;
+				pendingSceneChannel++;
+				if (pendingSceneChannel >= 5u)
+				{
+					pendingSceneIdx = 0xFFu;
+				}
+			}
 		}
 		
 		CANMessage msg = can_getMessageFromBuffer();
@@ -480,16 +519,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[0][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(0);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b00000001, 0x16); // Wann wird LED wieder gel�scht?
@@ -517,16 +547,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[1][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(1);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b00000010, 0x16); // Wann wird LED wieder gel�scht?
@@ -557,16 +578,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[2][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(2);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b00000100, 0x16); // Wann wird LED wieder gel�scht?
@@ -594,16 +606,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[3][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(3);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b00001000, 0x16); // Wann wird LED wieder gel�scht?
@@ -631,16 +634,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[4][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(4);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b00010000, 0x16); // Wann wird LED wieder gel�scht?
@@ -671,16 +665,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[5][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(5);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b00100000, 0x16); // Wann wird LED wieder gel�scht?
@@ -708,16 +693,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[6][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(6);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b01000000, 0x16); // Wann wird LED wieder gel�scht?
@@ -745,16 +721,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[7][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(7);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b10000000, 0x16); // Wann wird LED wieder gel�scht?
@@ -785,16 +752,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[8][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(8);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b01000000, 0x15); // Wann wird LED wieder gel�scht?
@@ -822,16 +780,7 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 						}
 						else
 						{
-							// Lichtszene aus EEPROM holen und ausf�hren
-							for (uint8_t i = 0; i <= 4; i++)
-							{
-								defaultMsgToLightActor11.data[0] = (0b00100000 | i);
-								defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[9][i]);
-								outputValue[i] = defaultMsgToLightActor11.data[1];
-								defaultMsgToLightActor11.length = 2;
-								can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-								defaultMsgToLightActor11.length = 1;
-							}
+							requestSceneRecall(9);
 						}
 						clearAllSceneLeds();
 						setPanelLed(0b10000000, 0x15); // Wann wird LED wieder gel�scht?
