@@ -43,6 +43,14 @@ uint8_t value2 = 0u;
 // atomically with ATOMIC_BLOCK below.
 static volatile uint16_t time = 0u; // Wird alle 10ms hochgez�hlt
 
+// Main-loop heartbeat for the conditional WDT kick. Main increments this
+// every iteration; the TIMER0 ISR's wdt_reset() only fires when this
+// changes between checks. If main hangs (e.g. CAN buffer/race deadlock),
+// the heartbeat stops, the ISR stops kicking, and the 250 ms WDT fires
+// to reset us. The WDT itself stays in the ISR (LED-multiplex protection
+// — see [[project-bedienpanel-wdt-in-isr]]); only the *gating* is new.
+static volatile uint8_t mainHeartbeat = 0u;
+
 static uint8_t outputValue[OUT_CHANNELS] = OUT_VALUE_START;
 static uint8_t programmLightSzenzeMode = 0u;
 static uint8_t saveActualValues = 0u;
@@ -167,6 +175,10 @@ int main(void)
 
     while(1)
     {
+		// Heartbeat for the conditional WDT kick (see TIMER0 ISR).
+		// Plain ++ is fine: the ISR only reads it and we only write here.
+		mainHeartbeat++;
+
 
 		if ((saveActualValues > 0u) && (saveActualValues < 11u))
 		{
@@ -317,9 +329,21 @@ ISR (TIMER0_OVF_vect) // jede 1ms 0,25ms ALLE 0,5ms/500us
 		{
 			cnt_10x10ms++;
 			if (cnt_10x10ms ==  1)
-			{	
-				
-				wdt_reset(); // Alle 100ms Watchdog Reseten um sicherzustellen dass die LEDs nicht �berhitzen
+			{
+				// Conditional WDT kick: only if main has made progress since
+				// the last check. If main is hung (CAN buffer overflow,
+				// deadlock, etc.) the heartbeat stops, we stop kicking, and
+				// the 250 ms WDT fires to reset the MCU. The LED multiplex
+				// is still protected because the kick is still gated by this
+				// ISR firing — if the ISR ever stops, we also stop kicking.
+				{
+					static uint8_t lastHeartbeat = 0u;
+					if (mainHeartbeat != lastHeartbeat)
+					{
+						wdt_reset();
+						lastHeartbeat = mainHeartbeat;
+					}
+				}
 				
 				if (~switches[2]&0b00000010) //P3, Ch0, BtnDown
 				{
