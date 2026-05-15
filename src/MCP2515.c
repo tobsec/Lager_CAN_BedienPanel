@@ -32,11 +32,23 @@ uint8_t spi_putc( uint8_t data )
 {
 	// Sendet ein Byte
 	SPDR = data;
-	
-	// Wartet bis Byte gesendet wurde
-	while( !( SPSR & (1<<SPIF) ) )
-	;
-	
+
+	// Bounded busy-wait. A normal SPI byte at fosc/4 (4 MHz with
+	// SPI2X) takes ~4 cycles of this loop (~1 us at 16 MHz CPU).
+	// Unbounded waits used to hang the MCU if the MCP2515 ever
+	// stalled on SPI (power glitch, ESD, mode lockup) — that was a
+	// candidate root cause for the panel's "feels frozen, multiplex
+	// still works" failure mode. 1000 iterations ~ 250 us = 250x
+	// normal byte time, well under the 250 ms WDT. On timeout we
+	// return whatever's in SPDR (probably the previous response,
+	// i.e. garbage) — the caller's error path (consecutiveTxFails /
+	// EFLG poll) eventually fires can_init and the system recovers.
+	uint16_t timeout = 1000u;
+	while ( !( SPSR & (1<<SPIF) ) && timeout != 0u )
+	{
+		timeout--;
+	}
+
 	return SPDR;
 }
 
