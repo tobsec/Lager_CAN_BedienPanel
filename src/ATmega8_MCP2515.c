@@ -8,6 +8,7 @@
 #include <avr/io.h>
 #include <stdio.h>
 #include <util/delay.h>
+#include <util/atomic.h>
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
 
@@ -35,7 +36,12 @@ uint8_t value = 128u;
 uint8_t value2 = 0u;
 
 
-static uint16_t time = 0u; // Wird alle 10ms hochgez�hlt
+// volatile + 16-bit on an 8-bit MCU: the ISR updates this every ~0.5 ms and
+// the main loop reads it from the scene-recall drain. Without volatile the
+// compiler may cache the read; without an atomic guard the high byte can
+// shift between the two LDS instructions. Use volatile here and read it
+// atomically with ATOMIC_BLOCK below.
+static volatile uint16_t time = 0u; // Wird alle 10ms hochgez�hlt
 
 static uint8_t outputValue[OUT_CHANNELS] = OUT_VALUE_START;
 static uint8_t programmLightSzenzeMode = 0u;
@@ -143,14 +149,17 @@ int main(void)
 	leds2[0u] = 0x10u; // Nur eine LED leuchtet nach Reset (ganz unten links)
 	
 	sei();
-	
+
 	// Nach Start: Request fuer alle Kanaele senden. 20 ms zwischen den
 	// Frames damit die 3 MCP2515-TX-Buffer Zeit zum Leeren haben und
-	// die gateway-RX nicht ueberlaeuft.
+	// die gateway-RX nicht ueberlaeuft. Use a stack-local CANMessage —
+	// the global defaultMsgToLightActor11 is owned by the TIMER0 ISR
+	// (button-press handlers) and must not be mutated from main.
 	for (uint8_t i = 0u; i < 5u; i++)
 	{
-		defaultMsgToLightActor11.data[0u] = i; // Action 0 (REQUEST_VALUE), outID i
-		can_sendBufferedMessage(&defaultMsgToLightActor11);
+		CANMessage req = defaultMsgToLightActor11;
+		req.data[0u] = i; // Action 0 (REQUEST_VALUE), outID i
+		can_sendBufferedMessage(&req);
 		_delay_ms(20);
 	}
 	
@@ -169,18 +178,24 @@ int main(void)
 		}
 
 		// Drain pending scene recall: one SET_VALUE frame per ~16 ms.
+		// `time` is 16-bit and updated from the ISR; read it atomically
+		// to avoid a byte tear. The frame itself is built on the stack
+		// (NOT in the shared defaultMsgToLightActor11) because the ISR
+		// is mutating that global concurrently for button presses.
 		if (pendingSceneIdx < 10u && pendingSceneChannel < 5u)
 		{
-			if ((uint16_t)(time - lastSceneTick) >= SCENE_RECALL_GAP_TICKS)
+			uint16_t tNow;
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { tNow = time; }
+			if ((uint16_t)(tNow - lastSceneTick) >= SCENE_RECALL_GAP_TICKS)
 			{
 				uint8_t ch = pendingSceneChannel;
-				defaultMsgToLightActor11.data[0] = (0b00100000 | ch);
-				defaultMsgToLightActor11.data[1] = eeprom_read_byte(&eeByteArray1[pendingSceneIdx][ch]);
-				outputValue[ch] = defaultMsgToLightActor11.data[1];
-				defaultMsgToLightActor11.length = 2;
-				can_addMessageToTxBuffer(&defaultMsgToLightActor11);
-				defaultMsgToLightActor11.length = 1;
-				lastSceneTick = time;
+				CANMessage sceneMsg = defaultMsgToLightActor11;
+				sceneMsg.data[0] = (0b00100000 | ch);
+				sceneMsg.data[1] = eeprom_read_byte(&eeByteArray1[pendingSceneIdx][ch]);
+				sceneMsg.length  = 2;
+				outputValue[ch]  = sceneMsg.data[1];
+				can_addMessageToTxBuffer(&sceneMsg);
+				lastSceneTick = tNow;
 				pendingSceneChannel++;
 				if (pendingSceneChannel >= 5u)
 				{

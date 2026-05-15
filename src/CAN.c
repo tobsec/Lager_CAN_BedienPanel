@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <util/atomic.h>
 
 #include "CAN.h"
 #include "mcp2515_defs.h"
@@ -312,17 +313,27 @@ CANMessage can_getMessageFromBuffer()
 
 void can_addMessageToTxBuffer(CANMessage *msg)
 {
-	// Same drop-newest discipline as the RX buffer. Previously this
-	// used a hard-coded wrap at 24 (the TXBUF_LEN was 32 but the bound
-	// was wrong) and never checked for full — overruns silently
-	// overwrote messages the consumer hadn't seen yet.
-	uint8_t next = (bufTx_tx >= (TXBUF_LEN - 1u)) ? 0u : (uint8_t)(bufTx_tx + 1u);
-	if (next == bufTx_rx)
+	// MPSC discipline: this function is called from both the TIMER0
+	// ISR (button-press handlers) AND from main context (scene recall,
+	// REQUEST_VALUE response, can_sendBufferedMessage re-queue).
+	// Without the atomic guard the main-context read-modify-write of
+	// bufTx_tx could be interrupted by the ISR — the ISR places its
+	// frame at the slot main is about to write, main then clobbers
+	// the ISR's frame on the way out. That is the "Up/Down buttons
+	// dead under load" failure mode.
+	//
+	// Drop-newest on overflow: if advancing the write pointer would
+	// catch the read pointer the buffer is full; better to lose this
+	// frame than corrupt the queue.
+	ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
 	{
-		return;
+		uint8_t next = (bufTx_tx >= (TXBUF_LEN - 1u)) ? 0u : (uint8_t)(bufTx_tx + 1u);
+		if (next != bufTx_rx)
+		{
+			copyMsg(msg, &txMsg[bufTx_tx]);
+			bufTx_tx = next;
+		}
 	}
-	copyMsg(msg, &txMsg[bufTx_tx]);
-	bufTx_tx = next;
 }
 
 CANMessage getMessageFromTxBuffer()
